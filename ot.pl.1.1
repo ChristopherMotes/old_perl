@@ -1,0 +1,33 @@
+#!/usr/bin/perl -w
+#my ever growing ot script.  Versioning is just to keep in practice.
+#v.1.0 basic script and few options
+#v.1.1 change format of output values
+use Getopt::Std;
+#use strict;
+use diagnostics;
+getopts('hlo:d:');
+sub error_message { #default error message
+    print "usage: ot.pl <hours worked> <hourly wage> <weeks worked>\n\t-h\tHelp: print this error message\n\t-o\tOvertime Multiplier: overtime is set to 1.5 if not specified\n\t-d\tTotal Deductions: presented as a whole number\n\t\te.g. deduct 30% is 30\n";
+} #end sub error_message
+if ( $opt_h ) { error_message(); exit (0); $opt_h="ERROR SUPRESSION"; }
+if ( $opt_o ) { $otRate=$opt_o; } else { $otRate=1.5; } 
+if ( $opt_d ) { $deductions=$opt_d; } else { $deductions=30; }
+if ( $opt_l ) { print "\tfuck you\n"; $opt_l="ERROR SUPRESSION"; } else# { $opt_l=42; }
+{
+$HoursWorked = $ARGV[0];
+$HourlyWage = $ARGV[1];
+$WeeksWorked = $ARGV[2];
+if ( $#ARGV < 1  ) { 
+    error_message();
+    exit 45;
+    }
+
+if ( $HoursWorked > 40)
+    { $WeeklyWage = ( $HourlyWage * 40 ) + ( $HourlyWage * ( $HoursWorked - 40 ) * $otRate );}
+  else {$WeeklyWage = ($HourlyWage * $HoursWorked);}
+printf "weekly wage is %.2f\n", $WeeklyWage;
+if (  $ARGV[2] ) { 
+   $TotalWage = $WeeklyWage * $WeeksWorked ; printf "Total Wages would be %.2f\n" , $TotalWage;
+   $AfterTax = $TotalWage * ( (100-$deductions)/100 ) ; printf "Take home would be about %.2f\n" , $AfterTax;
+}#end if ARGV2 
+}# end opt_l

@@ -1,0 +1,168 @@
+#!/usr/bin/perl -w
+## some standard systems commands
+$COPY_COMMAND="/bin/cp";
+$MOVE_COMMAND="/bin/mv";
+$ECHO_COMMAND="/bin/echo";
+$FILE_READ_COMMAND="/bin/cat";
+$USER_ID_COMMAND = "/usr/bin/id";
+$REDHAT_RELEASE=`cat /etc/redhat-release`;   
+print "####################";
+print "checking for super user";
+print "####################\n";
+$USER_ID_COMMAND_OPTIONS = "-u";
+$USER_ID = `$USER_ID_COMMAND $USER_ID_COMMAND_OPTIONS`;
+$BREAK_SLEEP_TIME = "1"; # value time 10 will give total sleep time
+chomp ($USER_ID);
+if ( $USER_ID == 0 ) {
+   for ( $X=0;$X<10;$X++ ) { 
+      print "##### I am super user, I can break the system\n"; 
+      sleep $BREAK_SLEEP_TIME; 
+      print "##### stop me now with ctrl-c if this is unacceptable.\n";
+   }
+   } else {
+   for ( $X=0;$X<10;$X++ ) { 
+      print "##### I am not super user, many of my tasks will fail\n"; 
+      sleep $BREAK_SLEEP_TIME; 
+      print "##### stop me now with ctrl-c if this is unacceptable.\n";
+   }
+}  
+### check and make network changes
+$ROUTE_COMMAND="/sbin/ip route show";
+$LINK_LAYER_TOOL="/sbin/mii-tool";
+$BACK_OFFICE_INTERFACE="eth0";
+$IP_INFO_COMMAND="/sbin/ifconfig $BACK_OFFICE_INTERFACE";
+$IP_SEARCH_VALUE="inet ";
+print "#########################";
+print "check networking files";
+print "#########################\n";
+print ">>>>>data link layer status\n";
+system($LINK_LAYER_TOOL);
+open ROUTE_TABLE, "$ROUTE_COMMAND |";
+while (<ROUTE_TABLE>) { if (/via/) { @_=split(/\s+/); push @ROUTES_LIST, $_[2]; } }
+close ROUTE_TABLE;
+print ">>>>>below are your gateways:\n";
+for (@ROUTES_LIST) { print "$_\n"; }
+print ">>>>>routing table:\n";
+system($ROUTE_COMMAND);
+open IP_INFO, "$IP_INFO_COMMAND |" or die "you are fucked";
+  
+while (<IP_INFO>) {
+   if (/$IP_SEARCH_VALUE/) { @_=split(/\s+|\:/); $BACKOFFICE_IP="$_[3]"; }
+}
+close IP_INFO;
+$REDHAT_RELEASE=`cat /etc/redhat-release`;
+if ($REDHAT_RELEASE =~ "release 2.1") {
+   print "I am running redhat linux as 2.1\nupdate /etc/sysconfig/static-routes if my routing information is incomplete.\nFormat is:\n\teth1 net 172.23.0.0 netmask 255.255.0.0 gw 172.24.24.1\n\teth1 net 10.131.0.0 netmask 255.255.0.0 gw 172.24.24.1";
+} elsif ($REDHAT_RELEASE =~ /release [34]/) {
+   print "I am running RHEL 3 or 4\nIf my routes are incorrect update /etc/sysconfig/network-scripts/route-$BACK_OFFICE_INTERFACE\nFormat is:\n\t10.131/16 via 172.26.24.1\n\t172.26.148/22 via 172.26.24.1\n";
+   if (-w "/etc/sysconfig/network") {
+      print "updating /etc/sysconfig/network\n";
+      `$ECHO_COMMAND NOZEROCONF=yes >> /etc/sysconfig/network`;
+   } else { print "I cannot write to /etc/sysconfig/network\n"; }
+   if ( (-e  "/etc/sysconfig/network-scripts/route-lo") && (-w "/etc/sysconfig/network-scripts/route-lo") ) {
+       print "updating /etc/sysconfig/network-scripts/route-lo\n";
+       `$ECHO_COMMAND 127/8 via 0.0.0.0 dev lo >> /etc/sysconfig/network-scripts/route-lo`;
+   } elsif ((!-e  "/etc/sysconfig/network-scripts/route-lo") && (-w "/etc/sysconfig/network-scripts") ) {
+      print "creating /etc/sysconfig/network-scripts/route-lo\n";
+      `$ECHO_COMMAND 127/8 via 0.0.0.0 dev lo >> /etc/sysconfig/network-scripts/route-lo`;
+   } elsif (!-w  "/etc/sysconfig/network-scripts/") {
+      print "I cannot write to /etc/sysconfig/network-scripts/\n";
+   }
+} else {
+  print "unsure of release taking no further action\n";
+}
+sleep 5;
+#### ntp checking stuff
+$STEP_TICKERS_FILE = "/etc/ntp/step-tickers";
+$STEP_TICKERS_FILE_OLD = "/etc/ntp/step-tickers.old";
+$NTP_TEST_COMMAND = "/usr/sbin/ntpdate";
+$NTP_TEST_COMMAND_OPTIONS = "-u";
+$LOCAL_DATE_COMMAND = "/bin/date";
+$LOCAL_DATE_COMMAND_OPTIONS = "+%d %b %R:%S is the local system time";
+$UPDATE_HARDWARE_CLOCK_COMMAND="/sbin/hwclock";
+$UPDATE_HARDWARE_CLOCK_COMMAND_OPTIONS="-w";
+printf "##########################";
+print "check time configuration";
+printf "##########################\n";
+if (-w $STEP_TICKERS_FILE) {
+   print "moving $STEP_TICKERS_FILE to $STEP_TICKERS_FILE_OLD\n";
+   system("$MOVE_COMMAND", "$STEP_TICKERS_FILE", "$STEP_TICKERS_FILE_OLD");
+   print "creating new step-tickers file $STEP_TICKERS_FILE.\n";
+   #build step tickers from routing table.
+   open STEP_TICKERS_FD, ">$STEP_TICKERS_FILE";
+   for (@ROUTES_LIST) { print STEP_TICKERS_FD "$_\n"; }
+   close STEP_TICKERS_FD;
+} else { print "I can't write to $STEP_TICKERS_FILE\n"; sleep 5 }
+if (-e $STEP_TICKERS_FILE)  {
+   printf "checking ntp server with $NTP_TEST_COMMAND\n";
+   open(STEP_TICKERS, "$STEP_TICKERS_FILE");
+    while (<STEP_TICKERS>) {
+      if (!/^#/) {
+         $STEP_TICKERS_IPADDR = $_;
+         chomp $STEP_TICKERS_IPADDR;
+         system("$NTP_TEST_COMMAND", "$NTP_TEST_COMMAND_OPTIONS", "$STEP_TICKERS_IPADDR");
+      }
+    }
+   close STEP_TICKERS;
+   system("$LOCAL_DATE_COMMAND", "$LOCAL_DATE_COMMAND_OPTIONS");
+   if ( $USER_ID == 0 ) {
+      system("/sbin/service ntpd restart");
+      system($UPDATE_HARDWARE_CLOCK_COMMAND, $UPDATE_HARDWARE_CLOCK_COMMAND_OPTIONS);
+   }
+   } else {
+   printf "no /etc/ntp/step_tickers found.  NTP will not work\n";}
+#### dns checking
+printf "#########################";
+print "check DNS configuration";
+printf "#########################\n";
+$DNS_TEST_COMMAND="/usr/bin/host";
+$DNS_HOSTNAME="www.verisign.com";
+printf "testing dns resolution to $DNS_HOSTNAME\n";
+system("$DNS_TEST_COMMAND", "$DNS_HOSTNAME"); 
+#### set up sudoers
+$ETC_SUDOERS_FILE="/etc/sudoers";
+print "#########################";
+print "setting up $ETC_SUDOERS_FILE";
+print "#########################\n";
+unless (-w "$ETC_SUDOERS_FILE") {
+    print "I can't write to $ETC_SUDOERS_FILE\n"; 
+    sleep 5;
+    } else {
+    `$ECHO_COMMAND "root    ALL=(ALL) ALL" > $ETC_SUDOERS_FILE`;
+    `$ECHO_COMMAND "%ops ALL=ALL" >> $ETC_SUDOERS_FILE`;
+    print "$ETC_SUDOERS_FILE now reads\n";
+    system("$FILE_READ_COMMAND", $ETC_SUDOERS_FILE);
+}
+### set up sshd
+$SSHD_CONFIG_DIR="/etc/ssh";
+$SSHD_CONFIG="$SSHD_CONFIG_DIR/sshd_config";
+$SSHD_CONFIG_OLD="$SSHD_CONFIG.old";
+print "#########################";
+print "changing $SSHD_CONFIG";
+print "#########################\n";
+if ( (-w "$SSHD_CONFIG") && (-w "$SSHD_CONFIG_DIR") ) { 
+   print "copying $SSHD_CONFIG to $SSHD_CONFIG_OLD\n";
+   system("$COPY_COMMAND", "$SSHD_CONFIG", "$SSHD_CONFIG_OLD");
+   open SSHD_OLD_FILE, $SSHD_CONFIG_OLD or warn "$SSHD_CONFIG failed backup";
+   open SSHD_NEW_FILE, ">$SSHD_CONFIG" or warn "unable to open $SSHD_CONFIG";
+   while (<SSHD_OLD_FILE>) {
+     if ( (/Protocol \d/) or (/ListenAddress \d+(\.\d+){3}/) ) { 
+        $SSH_CHANGE_OUT=$_; 
+        chomp $SSH_CHANGE_OUT; print "changing line $SSH_CHANGE_OUT\n";
+     }
+     s/Protocol \d.*/Protocol 1,2/;
+     s/ListenAddress \d+(\.\d+){3}/ListenAddress $BACKOFFICE_IP/;
+     print SSHD_NEW_FILE $_;
+   }
+} else {
+   print "There is a problem with $SSHD_CONFIG or $SSHD_CONFIG_DIR\n";
+   print "More than likely I cannot write to one or the other.\n";
+}
+sleep 3;
+close SSHD_OLD_FILE;
+close SSHD_NEW_FILE;
+
+if ( $USER_ID == 0 ) {
+  system("/sbin/service sshd restart");
+  system("/sbin/service network restart");
+}

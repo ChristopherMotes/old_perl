@@ -1,0 +1,91 @@
+#!/usr/bin/perl
+## cp_cwda v2
+# changed to output host list file on error
+# added usage options
+# added change file name option
+# added use scp instead of rsync option
+# added option to wait for each host
+# added no header option
+# added test for aruguements
+## end cp_cwda v2
+## cp_cwda v3
+# added change port option
+# added port logic for cwda_host.list
+## end cp cwda v3
+## cp_host.pl. v4
+# changing all scripts to use cp_hosts.
+# soft links can be used to make more sensible  names
+# cleaned logic on header name.
+# added -i option to specify an unlist ip
+# removed help option because it is stupid
+## end cp_hosts v4
+
+use Getopt::Std;
+use Term::InKey;
+getopts('hswnf:p:P:');
+sub error_message {
+ print "usage: $0 [-shwnfpP] <host list regex> <source file> <destination file>\n";
+ print " -s = use scp instead of rsync\n -h = print this help message\n -f <file name> = call a different host list file\n -w = wait for enter key stroke before continuing to next host\n -n = no hostname header\n -p <port number> = change default destination port\n -P <port number> = use only this destination port\n"
+} # end sub error_message
+$ssh='/usr/bin/ssh';
+if ( $opt_f ) {
+ $HOSTS_LIST_FILE=$opt_f
+} else {
+ $HOSTS_LIST_FILE='/home/cmotes/etc/server_room_host.list';
+} # end if opt_f
+## set default port
+if ( $opt_p ) { $default_ssh_port=$opt_p; } else { $default_ssh_port=22; }
+## set scp or rsync
+$scp='/usr/bin/scp';
+$scp_options='-rp';
+$rsync='/usr/bin/rsync';
+$rsync_options="-ave ssh";
+if (!@ARGV[2]) { error_message(); exit (73); } # tests that there are 3 args
+$hitter=shift @ARGV; # regexp match
+$source_file=shift @ARGV; # file or directory to copy
+$destination_file=shift @ARGV; # file or directory place data
+
+## here we set up the -n option.
+unless ( $opt_n ) { unshift(ARGV, 'uname -nsr ; uptime ;' ); }
+
+if ( $opt_h ) {
+ error_message();
+} else {
+open(HOSTS, "$HOSTS_LIST_FILE") or die("Oh please mother of all that is, give me a valid list.\n");
+ while (<HOSTS>) { if ( (/$hitter/) && (!/^#/) ) { push @host_list, $_; }
+ } # while hosts
+ close HOSTS;
+ if (@host_list) {
+  foreach (@host_list) {
+    @tmp_list=split(/\s+/);
+    $ipaddr=@tmp_list[0];
+    push(@ipaddr_list, $ipaddr);
+  } # end foreach host list
+  foreach (@ipaddr_list) {
+     @tmp_list=split(/\:/);
+     $dest_addr=@tmp_list[0];
+     ## port change logic
+     # if the host list file has an ip addr followed by a colon
+     # then the command will hit that port vice the default port
+     if ( @tmp_list[1] ) { $ssh_port=@tmp_list[1];  } else { $ssh_port=$default_ssh_port; }
+     # if the upper P option is defined that is the only port that will be used
+     if ( $opt_P ) { $ssh_port=$opt_P; }
+     ## end port change logic
+    $scp_final_options="${scp_options}P $ssh_port";
+    $rsync_final_options="$rsync_options -p $ssh_port";
+    if ( $opt_s ) {
+      system($scp, $scp_final_options, glob("$source_file"), "$dest_addr:/$destination_file" );
+    } else {
+      system($rsync, $rsync_final_options, glob("$source_file"), "$dest_addr:/$destination_file" );
+   }
+    if ( $opt_w ) { print "press any to continue\n" ; ReadKey(); }
+    else { print "^^^^^^^^^^\n"; }
+    $ssh_port=$default_ssh_port;
+
+  } # end foreach ipadder list
+ } else {
+  print "No matches in $HOSTS_LIST_FILE\n";
+  error_message();
+ exit (74);
+ } # end if  host list
+} # end if opt_h

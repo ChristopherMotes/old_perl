@@ -1,0 +1,82 @@
+#!/usr/bin/perl
+## hit_cwda v2
+# changed to output host list file on error
+# added usage options
+# added change file name option
+# added option to wait for enter keystroke between hosts
+# added no header option
+# repaired added test for aruguements
+## end hit_cwda v2
+## hit_cwda v3
+# added change port option
+# added port logic for cwda_host.list
+## end hit_cwda v3
+## hit_hosts v4
+# changing all scripts to use hit_hosts.
+# soft links can be used to make more sensible  names
+# cleaned logic on header name.
+# added -i option to specify an unlist ip
+# removed help option because it is stupid
+## end hit_host_list v4
+use Getopt::Std;
+use Term::InKey;
+getopts('wnf:p:P:');
+sub error_message { #default error message
+ print "usage: $0 [-wfnpP] <host list regex> <command>\n";
+ print " -f <file name> = use differnt host list\n -w = wait for enter key before continuing to next host\n -n = no hostname header\n -p <port number> = change default destination port\n -P <port number> = use only this destination port\n";
+} # end sub error_message
+
+unless ($ARGV[0]) { error_message(); exit (73); } # arguements test
+
+$ssh='/usr/bin/ssh ';
+$ssh_options=''
+
+if ( $opt_p ) { $default_ssh_port=$opt_p; } else { $default_ssh_port=22; }
+
+if ( $opt_f ) {
+ $HOSTS_LIST_FILE=$opt_f
+ } else {
+ $HOSTS_LIST_FILE='/usr/local/etc/server_room_host.list';
+} # end if opt_f
+
+$hitter=shift @ARGV;
+
+## here we set up the -n option.
+unless ( $opt_n ) { unshift(ARGV, 'uname -nsr ; uptime ;' ); }
+
+## here we build the host list
+open(HOSTS, "$HOSTS_LIST_FILE") or die("Oh please mother of all that is, give me a valid list.\n");
+while (<HOSTS>) {
+  if ( (/$hitter/) && (!/^#/) ) { push @host_list, $_; }
+}
+close HOSTS;
+
+if (@host_list) {
+  foreach (@host_list) {
+    @tmp_list=split(/\s+/);
+    $ipaddr=$tmp_list[0];
+    push(@ipaddr_list, $ipaddr);
+  }
+# strip ip addresses from the host list
+  foreach (@ipaddr_list) {
+    @tmp_list=split(/\:/);
+    $dest_addr=@tmp_list[0];
+    ## port change logic
+    # if the host list file has an ip addr followed by a colon
+    # then the command will hit that port vice the default port
+    if ( $tmp_list[1] ) { $ssh_port=@tmp_list[1];  } else { $ssh_port=$default_ssh_port; }
+    # if the upper P option is defined that is the only port that will be used
+    if ( $opt_P ) { $ssh_port=$opt_P; }
+    ## end port change logic
+    $ssh_options="-p $ssh_port";
+## this is the main command
+    system($ssh, $ssh_options, $dest_addr, @ARGV);
+    if ( $opt_w ) { print "Press any key to contiue\n"; ReadKey(); }
+    else { print "^^^^^^^^^^\n"; }
+    $ssh_port=$default_ssh_port;
+   }
+} else {
+ print "No matches in $HOSTS_LIST_FILE.\n";
+ error_message();
+ exit (74);
+}
